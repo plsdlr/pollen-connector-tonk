@@ -1,9 +1,15 @@
 # Pollen garden
 
 This space is a Pollen garden: coding agents' work drawn as a 3D garden.
-Every file an agent changes in an enabled project becomes a plant, and each
-agent session walks the garden as a figure. The view is the `ui3d` facet of
-`id:pollen`.
+Each agent session walks the garden as a figure. The view is the `ui3d`
+facet of `id:pollen`.
+
+**Writing a file grows a tree.** The first time an agent writes or edits a
+file in an enabled project, a tree is planted for it near that project's
+root; every later write to the same file makes that tree grow. Files changed
+through the shell count too: they are found at the end of each turn. Build,
+CI and lock files and binaries never get a tree. Reading a file only changes
+what the agent's figure is doing.
 
 The garden is written by the Pollen hooks, never by hand. Do not assert,
 retract or redefine the `pollen`, `gardener`, `plant`, `project` or `sheet`
