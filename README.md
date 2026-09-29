@@ -17,7 +17,7 @@ You need the `tonk` CLI, signed in, with the garden's space joined
 (`tonk join <invite-url> --name <space>`). Git is optional.
 
 ```sh
-git clone --depth 1 https://github.com/<org>/pollen-core-tonk ~/.local/share/tonk-pollen/app
+git clone --depth 1 https://github.com/plsdlr/pollen-connector-tonk ~/.local/share/tonk-pollen/app
 python3 ~/.local/share/tonk-pollen/app/pollen.py setup --space <space>
 ```
 
@@ -31,7 +31,7 @@ python3 ~/.local/share/tonk-pollen/app/pollen.py status   # "ready", plus the ga
 
 Or paste this to Claude Code:
 
-> Install Pollen from https://github.com/<org>/pollen-core-tonk for
+> Install Pollen from https://github.com/plsdlr/pollen-connector-tonk for
 > the Tonk space `<space>` following its README, enable it in this project,
 > and show me the output of `pollen.py status`.
 
