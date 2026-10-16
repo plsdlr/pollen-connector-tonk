@@ -80,8 +80,15 @@ def status(project):
         if row:
             code, out, err = tonk("--space", g.SPACE, "status", "--json")
             st = json.loads(out) if code == 0 else {}
-            signed = (st.get("account") or {}).get("signedIn")
-            r.line(bool(signed), "signed in", (st.get("account") or {}).get("account", err[:120]))
+            if "account" in st:
+                signed = st["account"].get("signedIn")
+                r.line(bool(signed), "signed in", st["account"].get("account") or err[:120])
+            else:
+                # tonk >= 0.6.17 (status schema v3) has no account section and no
+                # `tonk account`; only `tonk identity` prints "account: <did>".
+                code, out, err = tonk("identity")
+                m = re.search(r"^account: (did:\S+)", out, re.M)
+                r.line(bool(m), "signed in", m.group(1) if m else (out.strip() or err)[:120])
             state = (st.get("sync") or {}).get("state", "unknown")
             r.line(True if state == "synced" else None, "sync", state)
             missing = []
