@@ -37,14 +37,14 @@ Or paste this to Claude Code:
 
 ## What gets shared
 
-For each file an agent changes in an enabled project: the repo's name or git
-remote, the file's path, and how often it changed. For each session: its
-folder name and activity. Never file contents or prompts. Tonk keeps
-history, so only enable projects you're fine sharing with the space.
+For each file an agent changes in an enabled project: the repo's name or
+remote, the file's path and how often it changed; for each session, its
+folder and activity. Never contents or prompts. `enable --private` hashes
+all names, keeping file types (`x.ts`). Tonk keeps history: enable with care.
 
 ## Commands
 
-`setup --space NAME` · `enable [DIR]` · `disable [DIR]` · `status [DIR]` ·
-`hook claude` (run by the hooks, not by hand)
+`setup --space NAME` · `enable [--private] [DIR]` · `disable [DIR]` ·
+`status [DIR]` · `seed show|import HEX` · `hook claude` (run by the hooks)
 
 MIT licensed, see [LICENSE](LICENSE).

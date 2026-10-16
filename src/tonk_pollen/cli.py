@@ -1,10 +1,14 @@
 """The pollen command.
 
     pollen setup --space NAME     which tonk space this machine's agents write to
-    pollen enable [DIR]           opt a project in: register the Claude Code hooks
+    pollen enable [--private] [DIR]
+                                  opt a project in: register the Claude Code hooks;
+                                  --private writes hashes instead of names
     pollen disable [DIR]          opt it out again
     pollen status [DIR]           check machine, space and project; print the garden URL
-    pollen hook claude            (run by Claude Code, not by hand) one hook event on stdin
+    pollen seed show|import HEX   the private-mode key, to copy to your other machines
+    pollen hook claude [--private]
+                                  (run by Claude Code, not by hand) one hook event on stdin
     pollen version
 
 DIR defaults to the current directory.
@@ -21,9 +25,9 @@ def main(argv=None):
 
     if cmd == "hook":
         # Never fail and never print: a garden must not get in the way of the work.
-        if rest == ["claude"]:
+        if rest in (["claude"], ["claude", "--private"]):
             from .adapters import claude
-            claude.run()
+            claude.run(private=len(rest) == 2)
         return 0
     if cmd == "status":
         from . import status
@@ -33,9 +37,16 @@ def main(argv=None):
         if len(rest) != 2 or rest[0] != "--space":
             sys.exit("usage: pollen setup --space NAME")
         return install.setup(rest[1])
-    if cmd in ("enable", "disable"):
+    if cmd == "enable":
         from . import install
-        return getattr(install, cmd)(_dir(rest))
+        private = "--private" in rest
+        return install.enable(_dir([a for a in rest if a != "--private"]), private=private)
+    if cmd == "disable":
+        from . import install
+        return install.disable(_dir(rest))
+    if cmd == "seed":
+        from . import install
+        return install.seed_cmd(rest)
     if cmd in ("version", "--version"):
         from . import __version__
         print(__version__)

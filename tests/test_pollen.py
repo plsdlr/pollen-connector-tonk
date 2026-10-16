@@ -122,5 +122,98 @@ class Enable(unittest.TestCase):
                 self.assertEqual(json.load(f), {"model": "x", "hooks": {"Stop": [{"hooks": [other]}]}})
 
 
+class Private(unittest.TestCase):
+    KEY = bytes(range(32))
+
+    def test_type_hints_keep_only_what_picks_the_species(self):
+        for rel, hint in [
+            ("src/auth/login.ts", "x.ts"), ("types/api.d.ts", "x.d.ts"),
+            ("app/views/x.BLADE.php", "x.blade.php"), ("plan.v2.md", "x.md"),
+            ("README.md", "readme"), ("docs/readme-internal.md", "readme"),
+            ("Rakefile", "rakefile"), (".gitignore", ".gitignore"), (".env", ".env"),
+            (".env.production", ".env."), (".eslintrc.json", ".eslintrc"),
+            (".bashrc", "x"), ("Notes", "x"), ("secret-plans.unknownext", "x"),
+        ]:
+            self.assertEqual(core.type_hint(rel), hint, rel)
+
+    def test_names_are_stable_keyed_and_unreadable(self):
+        a = core.private_names("github.com/org/repo", "src/a.py", self.KEY)
+        self.assertEqual(a, core.private_names("github.com/org/repo", "src/a.py", self.KEY))
+        self.assertNotEqual(a, core.private_names("github.com/org/repo", "src/a.py", bytes(32)))
+        pid, plant, path, name = a
+        self.assertRegex(pid, r"^id:proj-[0-9a-f]{16}$")
+        self.assertRegex(plant, r"^id:plant/[0-9a-f]{16}$")
+        self.assertEqual((path, name), ("x.py", pid[len("id:proj-"):]))
+        self.assertNotIn("repo", "".join(a))
+
+    def test_hook_lines_say_private(self):
+        self.assertTrue(install.is_ours("/usr/bin/python3 -S /opt/pollen.py hook claude --private"))
+        self.assertTrue(install.is_private("/usr/bin/python3 -S /opt/pollen.py hook claude --private"))
+        self.assertFalse(install.is_private("/usr/bin/python3 -S /opt/pollen.py hook claude"))
+        self.assertFalse(install.is_private("echo --private"))
+
+    def test_a_private_batch_writes_no_names(self):
+        from tonk_pollen import flush
+        written = []
+        saved = core.GIT, core.query, core.tonk, os.environ.get("TONK_POLLEN_SEED")
+        core.GIT, core.query = None, lambda concept: []
+        core.tonk = lambda *a, stdin=None: written.append(stdin) or ""
+        os.environ["TONK_POLLEN_SEED"] = self.KEY.hex()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                proj = os.path.join(d, "acme-secret-project")
+                lines = [{"s": "sess-1", "t": 1.0, "cwd": proj, "p": 1, "activity": "coding",
+                          "touch": os.path.join(proj, "src", "billing", "invoice_rules.py")},
+                         {"s": "sess-1", "t": 2.0, "cwd": proj, "p": 1,
+                          "touch": os.path.join(proj, "README.md")}]
+                os.makedirs(proj)
+                with open(os.devnull, "w") as quiet:
+                    err, sys.stderr = sys.stderr, quiet
+                    try:
+                        flush.process(lines, {})
+                    finally:
+                        sys.stderr = err
+        finally:
+            core.GIT, core.query, core.tonk = saved[:3]
+            if saved[3] is None:
+                os.environ.pop("TONK_POLLEN_SEED")
+            else:
+                os.environ["TONK_POLLEN_SEED"] = saved[3]
+        doc = "".join(written)
+        self.assertIn("plant!:", doc)
+        for leak in ("acme", "secret", "billing", "invoice", "README", "local/"):
+            self.assertNotIn(leak, doc)
+        self.assertIn('path: "x.py"', doc)
+        self.assertIn('path: "readme"', doc)
+        self.assertIn(f"name: {core.quote('agent·sess')}", doc)
+
+    def test_enable_private_makes_a_seed_and_switches_back(self):
+        os.environ["TONK_POLLEN_LAUNCHER"] = "/opt/pollen-core-tonk/pollen.py"
+        saved = core.SEED_FILE, os.environ.pop("TONK_POLLEN_SEED", None)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                core.SEED_FILE = os.path.join(d, "cfg", "seed")
+                path = os.path.join(d, ".claude", "settings.local.json")
+                with open(os.devnull, "w") as quiet:
+                    out, sys.stdout = sys.stdout, quiet
+                    try:
+                        install.enable(d, private=True)
+                        self.assertTrue(install.private_in(path))
+                        self.assertEqual(os.stat(core.SEED_FILE).st_mode & 0o777, 0o600)
+                        self.assertEqual(len(core.seed()), 32)
+                        install.enable(d)
+                        self.assertIs(install.private_in(path), False)
+                        self.assertEqual(install.ours_in(path), set(install.EVENTS))
+                        install.disable(d)
+                        self.assertIsNone(install.private_in(path))
+                    finally:
+                        sys.stdout = out
+        finally:
+            core.SEED_FILE = saved[0]
+            if saved[1] is not None:
+                os.environ["TONK_POLLEN_SEED"] = saved[1]
+            os.environ.pop("TONK_POLLEN_LAUNCHER", None)
+
+
 if __name__ == "__main__":
     unittest.main()

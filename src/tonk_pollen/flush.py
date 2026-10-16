@@ -20,6 +20,12 @@ What a batch writes (the garden schema, set up by the space owner):
              changed through Bash are found at the end of the turn by
              scan_turns() and count as one touch each.
 
+Private sessions (hooks registered with `enable --private`; their spool lines
+carry "p": 1) write no names: project and plant ids, project name and remote
+are keyed hashes (core.private_names), `path` is only the type hint the
+renderer needs for the species, and the gardener is `agent·<session>`. The
+log names their files by type hint only.
+
 Log: ~/.cache/tonk-pollen/flush.log.
 """
 import fcntl, json, os, sys, time
@@ -121,7 +127,10 @@ def scan_turns(sessions, state):
                 if root:
                     t0 = time.time()
                     found = g.changed_since(root, w["since"], w["told"])
-                    if found:
+                    if found and any(e.get("p") for e in evs):
+                        log(f"scan (private): {len(found)} changed outside the hooks "
+                            f"({(time.time() - t0) * 1000:.0f} ms)")
+                    elif found:
                         rels = [os.path.relpath(p, root) for p in found]
                         log(f"scan {os.path.basename(root)}: {len(found)} changed outside the hooks "
                             f"({(time.time() - t0) * 1000:.0f} ms): "
@@ -158,8 +167,11 @@ def process(lines, state):
         st = state.setdefault(s, {})
         fields = OrderedDict()
         cwd = next((e["cwd"] for e in evs if e.get("cwd")), "")   # the session's project root
+        private = any(e.get("p") for e in evs)
+        key = g.seed(create=True) if private else None
         if not st.get("known") and agent not in have_gardener:
-            fields.update(this=agent, name=g.quote(f"{os.path.basename(cwd) or 'agent'}·{s[:4]}"),
+            folder = "agent" if private else os.path.basename(cwd) or "agent"
+            fields.update(this=agent, name=g.quote(f"{folder}·{s[:4]}"),
                           rx=0, ry=0, color=len(have_gardener) % PALETTE)
             have_gardener.add(agent)
             log(f"new gardener {agent} colour {fields['color']}")
@@ -177,18 +189,21 @@ def process(lines, state):
             if not where:
                 continue
             ident, name, rel = where
+            if private:
+                pid, pkey, shown, name = g.private_names(ident, rel, key)
+                remote = name
+            else:
+                pid, pkey, shown, remote = "id:proj-" + ident.replace("/", "-"), f"id:{ident}/{rel}", rel, ident
             if g.excluded(rel):
                 # build/CI files and binaries are never planted, nor grown
-                log(f"skip {rel}: excluded (build/CI or binary)")
+                log(f"skip {shown}: excluded (build/CI or binary)")
                 continue
-            pid = "id:proj-" + ident.replace("/", "-")
-            key = f"id:{ident}/{rel}"
             n = counts[path]
-            if key in plants:
-                p = plants[key]
+            if pkey in plants:
+                p = plants[pkey]
                 p["growth"] = (g.as_int(p.get("growth")) or 1) + n
-                doc.append(f"plant!:\n  this: {key}\n  growth: {p['growth']}\n")
-                at = key
+                doc.append(f"plant!:\n  this: {pkey}\n  growth: {p['growth']}\n")
+                at = pkey
                 continue
             if pid not in slots:
                 slots[pid], next_slot = next_slot, next_slot + 1
@@ -199,22 +214,23 @@ def process(lines, state):
                 # (write it down so later projects cannot shift it); or one
                 # with a bad slot (the renderer would not draw it at all)
                 doc.append(f"project!:\n  this: {pid}\n  name: {g.quote(name)}\n"
-                           f"  remote: {g.quote(ident)}\n  slot: {slots[pid]}\n")
+                           f"  remote: {g.quote(remote)}\n  slot: {slots[pid]}\n")
                 written_projects.add(pid)
                 known_projects[pid] = {"this": pid, "slot": slots[pid]}
             if slots[pid] >= g.SLOTS:
-                log(f"no room on the stripe for {pid} (slot {slots[pid]}); {rel} not planted")
+                log(f"no room on the stripe for {pid} (slot {slots[pid]}); {shown} not planted")
                 continue
             spot = g.next_field(slots[pid], taken)
             if spot is None:
-                log(f"{pid} is full ({g.MAX_REACH} fields out); {rel} not planted")
+                log(f"{pid} is full ({g.MAX_REACH} fields out); {shown} not planted")
                 continue
             x, y = spot
-            doc.append(f"plant!:\n  this: {key}\n  project: {pid}\n  path: {g.quote(rel)}\n"
+            doc.append(f"plant!:\n  this: {pkey}\n  project: {pid}\n  path: {g.quote(shown)}\n"
                        f"  x: {x}\n  y: {y}\n  by: {agent}\n  growth: {n}\n")
-            plants[key] = {"this": key, "x": x, "y": y, "growth": n, "project": pid}
-            at = key
-            log(f"plant {key} at field ({x}, {y}) of slot {slots[pid]}")
+            plants[pkey] = {"this": pkey, "x": x, "y": y, "growth": n, "project": pid}
+            at = pkey
+            log(f"plant {pkey} ({shown}) at field ({x}, {y}) of slot {slots[pid]}" if private
+                else f"plant {pkey} at field ({x}, {y}) of slot {slots[pid]}")
 
         activity = next((e["activity"] for e in reversed(evs) if "activity" in e), None)
         if activity and activity != st.get("activity"):

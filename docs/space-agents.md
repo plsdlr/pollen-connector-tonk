@@ -34,8 +34,16 @@ Only Claude Code is supported so far. On another harness, say so and stop.
    and how often files change, plus the session's folder name and activity.
    No file contents or prompts. Tonk keeps history, so whatever is written
    stays in this space and is visible to every member.
+   **Also offer private mode** and ask which they want: it writes keyed
+   hashes instead of the repo, folder and file names, and only the file type
+   (`x.ts`, `readme`), so trees still get their species. It does not hide
+   file types, how many files change, how often or when, and names written
+   before switching stay in the history.
 6. **Enable only the project they named:**
-   `python3 ~/.local/share/tonk-pollen/app/pollen.py enable <project dir>`.
+   `python3 ~/.local/share/tonk-pollen/app/pollen.py enable <project dir>`,
+   or `enable --private <project dir>` if they chose private mode. If they
+   use Pollen on several machines, the private seed must match:
+   `pollen.py seed show` on one, `pollen.py seed import <hex>` on the others.
    This writes hooks to `<project>/.claude/settings.local.json` (git-ignored)
    and nowhere else. Never enable projects the user didn't name, and never add
    the hooks to user-wide settings.

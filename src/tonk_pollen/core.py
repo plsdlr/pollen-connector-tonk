@@ -338,6 +338,109 @@ def quote(text):
     return json.dumps(text)
 
 
+# ---- private mode: no readable names in the space ---------------------------
+# A project enabled with `--private` writes keyed hashes instead of its repo
+# name, remote and file paths, and only a type hint in `path` (what the
+# renderer needs to pick the species). The key is a per-user seed: without it
+# nobody, members included, can hash likely names to test them. The same seed
+# on two machines gives the same ids, so a file stays one plant.
+
+SEED_FILE = os.path.join(os.path.dirname(CONFIG), "seed")
+HASH_BYTES = 8                      # 16 hex chars; collision-free at garden scale
+
+
+def seed(create=False):
+    """The private-mode key as bytes: TONK_POLLEN_SEED (hex), else the seed
+    file. With `create`, a missing file is made (32 random bytes, 0600);
+    otherwise None when there is none."""
+    env = os.environ.get("TONK_POLLEN_SEED")
+    if env:
+        return bytes.fromhex(env.strip())
+    try:
+        with open(SEED_FILE) as f:
+            return bytes.fromhex(f.read().strip())
+    except FileNotFoundError:
+        if not create:
+            return None
+    import secrets
+    write_seed(secrets.token_bytes(32))
+    return seed()
+
+
+def write_seed(key):
+    os.makedirs(os.path.dirname(SEED_FILE), exist_ok=True)
+    fd = os.open(SEED_FILE + ".tmp", os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(key.hex() + "\n")
+    os.replace(SEED_FILE + ".tmp", SEED_FILE)
+
+
+def h(text, key):
+    """The private name for `text`: HMAC-SHA256 under the seed, HASH_BYTES of it in hex."""
+    import hashlib, hmac
+    return hmac.new(key, text.encode(), hashlib.sha256).digest()[:HASH_BYTES].hex()
+
+
+def fingerprint(key):
+    """Short and safe to show: two machines with the same seed print the same."""
+    return h("fingerprint", key)[:8]
+
+
+# The renderer's species table, as far as the type hint needs it: the file
+# names and extensions renderer/lib/species.js matches on. Copied from there;
+# tonktest's maintainer/species_parity.py fails when the two drift.
+SPECIES_NAMES = set("""
+rakefile .gitignore .gitattributes .gitmodules .editorconfig .npmrc .nvmrc .env .dockerignore codeowners
+""".split())
+SPECIES_PREFIXES = tuple("""
+readme license licence copying changelog authors contributing notice .prettierrc .eslintrc .env.
+""".split())
+SPECIES_EXTS = set("""
+.js .mjs .cjs .jsx .ts .tsx .mts .cts .d.ts .py .pyi .pyw .pyx .pxd .ipynb .rs .go
+.c .h .cc .cpp .cxx .c++ .hpp .hh .hxx .inl .ipp .cs .csx .fs .fsx .fsi .vb .razor .cshtml
+.java .kt .kts .scala .sc .groovy .swift .m .mm .dart .rb .rake .erb .php .phtml .blade.php
+.sh .bash .zsh .fish .nu .ps1 .psm1 .psd1 .bat .cmd .lua .luau .pl .pm .t .raku .tcl .awk
+.html .htm .css .scss .sass .less .styl .vue .svelte .astro .hbs .ejs .pug .njk .liquid
+.hs .lhs .ml .mli .elm .purs .re .rei .res .resi .idr .agda .lean
+.lisp .cl .el .clj .cljs .cljc .edn .scm .ss .rkt .fnl .ex .exs .heex .eex .leex .erl .hrl .gleam
+.r .rmd .qmd .jl .mat .sas .stan .do .zig .nim .d .odin .cr .ha .mojo .sol .move
+.asm .s .wat .cu .cuh .glsl .vert .frag .comp .hlsl .wgsl .metal .v .sv .svh .vhd .vhdl
+.sql .psql .prql .graphql .gql .proto .thrift .avsc .prisma .notation
+.md .mdx .markdown .rst .adoc .txt .org .tex .bib .typ .pdf .docx .odt .rtf .epub .pptx .key
+.json .jsonc .json5 .toml .yaml .yml .ini .cfg .conf .properties .env .plist .xcconfig
+.csv .tsv .jsonl .ndjson .geojson .xml .parquet .arrow .feather .avro .orc .sqlite .sqlite3 .db
+.duckdb .xlsx .xls .ods .h5 .hdf5 .nc .npy .npz .pkl .pickle .safetensors .onnx .pt
+.png .jpg .jpeg .gif .webp .avif .heic .bmp .tif .tiff .ico .icns .svg .psd .xcf .kra .ai .aseprite
+.mp3 .wav .ogg .oga .flac .m4a .aac .opus .mid .midi .mp4 .m4v .mov .webm .mkv .avi .srt .vtt
+.obj .mtl .fbx .gltf .glb .blend .stl .ply .usd .usda .usdz .3mf .step .ttf .otf .woff .woff2 .fig .sketch .xd
+""".split())
+
+
+def type_hint(rel):
+    """The least of a path that still grows the same species: a generic file
+    name as it is (`readme`, `.gitignore`), else `x` plus the extension the
+    renderer matches (`x.d.ts`), else `x` (Unknown). Mirrors speciesOf()."""
+    name = rel.replace(os.sep, "/").rsplit("/", 1)[-1].lower()
+    if name in SPECIES_NAMES:
+        return name
+    for prefix in SPECIES_PREFIXES:
+        if name.startswith(prefix):
+            return prefix
+    parts = name.lstrip(".").split(".")
+    for i in range(1, len(parts)):            # longest first, as speciesOf does
+        ext = "." + ".".join(parts[i:])
+        if ext in SPECIES_EXTS:
+            return "x" + ext
+    return "x"
+
+
+def private_names(ident, rel, key):
+    """(project id, plant id, path, project name) for a private session."""
+    hp = h(ident, key)
+    return ("id:proj-" + hp, "id:plant/" + h(ident + "\0" + rel.replace(os.sep, "/"), key),
+            type_hint(rel), hp)
+
+
 if __name__ == "__main__" and sys.argv[1:] == ["--parity"]:
     print(json.dumps({"slots": SLOTS,
                       "roots": [[ORIGIN_X + root_fields(s)[0] * STEP, ORIGIN_Z + root_fields(s)[1] * STEP]

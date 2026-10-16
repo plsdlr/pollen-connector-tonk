@@ -6,7 +6,7 @@ space.
 import json, os, re, shlex, shutil, subprocess, sys
 
 from . import __version__, core as g
-from .install import EVENTS, is_ours, ours_in, read_json, settings_files
+from .install import EVENTS, is_ours, ours_in, private_in, read_json, settings_files
 
 CONCEPTS = ("gardener", "plant", "project", "sheet")
 
@@ -127,6 +127,14 @@ def status(project):
         r.line(not missing and not broken, "hooks registered",
                f"in {where_from}" + (f"; missing {', '.join(missing)}" if missing else "")
                + (f"; {'; '.join(broken)}" if broken else ""))
+        private = [p for p in regs if private_in(p)]
+        if private:
+            key = g.seed()
+            r.line(bool(key), "private", f"yes: hashed names, seed {g.fingerprint(key)}" if key else
+                   "yes, but no seed on this machine: run `pollen enable --private` again, "
+                   "or `pollen seed import` the one from your other machine")
+        else:
+            r.line(True, "private", "no: repo, folder and file names are written to the space")
 
     print("last activity")
     log = os.path.join(g.CACHE, "flush.log")

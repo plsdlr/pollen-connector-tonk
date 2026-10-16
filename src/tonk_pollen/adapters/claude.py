@@ -109,7 +109,7 @@ def capture(data):
             f.write(json.dumps(data) + "\n")
 
 
-def main():
+def main(private=False):
     try:
         data = json.load(sys.stdin)
     except Exception:
@@ -119,6 +119,8 @@ def main():
     line = event_of(data)
     if not line:
         return
+    if private:
+        line["p"] = 1                       # `enable --private`: flush.py writes no names for it
     # One write of one short line with O_APPEND: lines from sessions running
     # side by side cannot interleave.
     with open(SPOOL, "a") as f:
@@ -126,9 +128,9 @@ def main():
     start_flusher()
 
 
-def run():
+def run(private=False):
     """The hook's entry point: never raises, never prints."""
     try:
-        main()
+        main(private)
     except Exception:
         pass

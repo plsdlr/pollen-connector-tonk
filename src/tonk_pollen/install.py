@@ -2,7 +2,9 @@
 
     setup     writes the space to ~/.config/tonk-pollen/config.json
     enable    registers the Claude Code hooks in <project>/.claude/settings.local.json
+              (--private: the hooks pass --private, and the project writes no names)
     disable   takes them out again
+    seed      shows or imports the private-mode key
 
 Registering the hooks IS the opt-in: a project without them writes nothing to
 the space. settings.local.json is Claude Code's personal, git-ignored layer,
@@ -20,29 +22,33 @@ MATCHER = "Write|Edit|MultiEdit|NotebookEdit|Read|Grep|Glob|WebFetch|WebSearch"
 TIMEOUT = 5
 
 
-def pollen_command():
+def pollen_command(private=False):
     """The command a hook runs, with absolute paths so it never depends on the
     PATH Claude Code's hook shell happens to have.
 
     From a checkout (pollen.py): this Python, with -S -- the package is
     standard library only, and skipping site is the fastest start. From a
     uv/pipx install: the installed `pollen` script."""
+    flag = " --private" if private else ""
     launcher = os.environ.get("TONK_POLLEN_LAUNCHER")
     if launcher:
-        return f"{shlex.quote(sys.executable)} -S {shlex.quote(launcher)} hook claude"
+        return f"{shlex.quote(sys.executable)} -S {shlex.quote(launcher)} hook claude{flag}"
     exe = shutil.which("pollen") or os.path.abspath(sys.argv[0])
-    return f"{shlex.quote(exe)} hook claude"
+    return f"{shlex.quote(exe)} hook claude{flag}"
 
 
 def is_ours(command):
     """Whether a hook command runs the garden's Claude adapter: `pollen hook
     claude` or `python pollen.py hook claude` in any form, the same under its
     earlier name `garden`, or the script it grew out of
-    (tonktest/garden/adapters/claude.py, hook.py before 2026-09-28)."""
+    (tonktest/garden/adapters/claude.py, hook.py before 2026-09-28). A
+    trailing --private (private mode) is still ours."""
     try:
         words = shlex.split(command or "")
     except ValueError:
         return False
+    if words[-1:] == ["--private"]:
+        words = words[:-1]
     names = {os.path.basename(w) for w in words}
     if words[-2:] == ["hook", "claude"] and names & {"pollen", "pollen.py", "pollen.exe", "garden", "garden.py"}:
         return True
@@ -92,14 +98,21 @@ def without_ours(hooks):
     return out, removed
 
 
-def enable(project):
+def is_private(command):
+    """Whether one of our hook commands runs in private mode."""
+    return is_ours(command) and shlex.split(command)[-1:] == ["--private"]
+
+
+def enable(project, private=False):
     path = settings_files(project)[0]
     try:
         data = read_json(path)
     except ValueError as e:
         sys.exit(f"{path} isn't valid JSON ({e}); fix it first, nothing was changed")
+    was = private_in(path)
+    key = g.seed(create=True) if private else None          # before the hooks can write anything
     hooks, _ = without_ours(data.get("hooks") or {})      # re-enabling replaces, never doubles
-    command = pollen_command()
+    command = pollen_command(private)
     for event in EVENTS:
         group = {"hooks": [{"type": "command", "command": command, "timeout": TIMEOUT}]}
         if event == "PostToolUse":
@@ -108,6 +121,14 @@ def enable(project):
     data["hooks"] = hooks
     write_json(path, data)
     print(f"enabled: {os.path.relpath(path, project)} runs `{command}`")
+    if private:
+        print(f"private: no repo, folder or file names are written, only hashes (seed "
+              f"{g.fingerprint(key)}, in {g.SEED_FILE.replace(os.path.expanduser('~'), '~')}). "
+              "File types, how often files change and when still show. On your other machines, "
+              "`pollen seed import` the output of `pollen seed show` so a file stays one plant.")
+    if was is not None and was != private:
+        print("note: switching modes starts new plants and a new project root; what was written "
+              "before stays in the space's history")
     for p in filter(runs_pollen, settings_files(project)[1:]):
         print(f"note: {p.replace(os.path.expanduser('~'), '~')} also runs the garden; "
               "remove it there or every event is reported twice")
@@ -150,6 +171,43 @@ def ours_in(path):
 
 def runs_pollen(path):
     return bool(ours_in(path))
+
+
+def private_in(path):
+    """True/False when a settings file runs the garden in private mode or
+    not, None when it doesn't run it at all."""
+    try:
+        hooks = read_json(path).get("hooks") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    commands = [h.get("command") for groups in hooks.values() for group in groups or []
+                for h in group.get("hooks") or [] if is_ours(h.get("command"))]
+    return any(map(is_private, commands)) if commands else None
+
+
+def seed_cmd(rest):
+    """`pollen seed show`: print the private-mode key (hex). `pollen seed
+    import HEX`: install one, e.g. from another machine."""
+    if rest == ["show"]:
+        key = g.seed()
+        if not key:
+            sys.exit("no seed yet: `pollen enable --private` makes one")
+        print(key.hex())
+        return 0
+    if len(rest) == 2 and rest[0] == "import":
+        try:
+            key = bytes.fromhex(rest[1])
+        except ValueError:
+            sys.exit("not a hex seed")
+        if len(key) < 16:
+            sys.exit("too short: a seed is the 64 hex characters `pollen seed show` prints")
+        old = g.seed()
+        if old and old != key:
+            print(f"replacing seed {g.fingerprint(old)}: private projects get new plants from now on")
+        g.write_seed(key)
+        print(f"seed {g.fingerprint(key)} saved to {g.SEED_FILE.replace(os.path.expanduser('~'), '~')}")
+        return 0
+    sys.exit("usage: pollen seed show | pollen seed import HEX")
 
 
 def setup(space):
